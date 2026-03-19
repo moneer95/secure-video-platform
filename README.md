@@ -77,6 +77,43 @@ It does not provide:
 - FairPlay
 - true DRM license servers
 
+## CI/CD: GitHub Webhook → deploy on the server
+
+No GitHub Actions. When you **push to `main`**, GitHub sends a webhook to your server; the backend verifies it and runs the deploy script (git pull, build, PM2 reload).
+
+### One-time server setup
+
+1. **Node.js 18+** and **FFmpeg** installed.
+2. **PM2** globally: `npm install -g pm2`.
+3. **Clone the repo** on the server and do an initial deploy (see Manual deploy below).
+4. **Backend env**: In `backend/.env` set **`GITHUB_WEBHOOK_SECRET`** (same value you’ll set in GitHub in the next step).
+
+### Add the webhook in GitHub
+
+1. Open your repo on GitHub → **Settings** → **Webhooks** → **Add webhook**.
+2. **Payload URL**: your backend URL + `/api/webhook/deploy`, e.g. `https://api.yourdomain.com/api/webhook/deploy`. Must be reachable from the internet.
+3. **Content type**: `application/json`.
+4. **Secret**: generate one (e.g. run `openssl rand -hex 32`) and paste it. **Use the same value** in `backend/.env` as `GITHUB_WEBHOOK_SECRET`.
+5. **Which events**: choose **Just the push event** (or “Let me select…” and tick “Pushes”).
+6. Save. GitHub will send a POST to that URL on every push; the backend only runs the deploy when `ref` is `refs/heads/main`.
+
+You don’t need any Actions or repository secrets. GitHub calls your server automatically when you push.
+
+### PM2 on the server
+
+- **Backend**: `video-backend`. **Frontend**: `video-frontend` (Next on port 3000). Use **`ecosystem.config.cjs`** at repo root.
+
+### Manual deploy
+
+From the server, from repo root:
+
+```bash
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
+```
+
+---
+
 ## Good next upgrades
 - PostgreSQL
 - S3 / MinIO

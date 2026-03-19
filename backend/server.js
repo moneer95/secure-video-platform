@@ -4,10 +4,46 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { exec } from "child_process";
 import db from "./db.js";
 import { convertMp4ToHls } from "./ffmpeg.js";
 
 const app = express();
+
+// GitHub webhook needs raw body for signature verification; must be before express.json()
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || process.env.DEPLOY_WEBHOOK_SECRET || "";
+
+app.use(
+  "/api/webhook/deploy",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    const sig = req.get("x-hub-signature-256");
+    if (!GITHUB_WEBHOOK_SECRET || !sig || !sig.startsWith("sha256=")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const expected = "sha256=" + crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(req.body).digest("hex");
+    if (sig !== expected) return res.status(401).json({ error: "Invalid signature" });
+    try {
+      const payload = JSON.parse(req.body.toString());
+      if (payload.ref !== "refs/heads/main") {
+        return res.status(200).json({ ok: true, skipped: "not main branch" });
+      }
+      const scriptPath = path.join(path.resolve(process.cwd(), ".."), "scripts", "deploy.sh");
+      if (!fs.existsSync(scriptPath)) {
+        return res.status(500).json({ error: "Deploy script not found" });
+      }
+      const repoRoot = path.resolve(process.cwd(), "..");
+      exec(`cd "${repoRoot}" && chmod +x scripts/deploy.sh && ./scripts/deploy.sh`, (err, stdout, stderr) => {
+        if (err) console.error("Deploy error:", err, stderr);
+        else if (stdout) console.log("Deploy output:", stdout);
+      });
+      res.status(202).json({ ok: true, message: "Deploy started" });
+    } catch (e) {
+      res.status(400).json({ error: "Bad payload" });
+    }
+  }
+);
+
 app.use(express.json());
 
 const PORT = process.env.PORT || 4000;
@@ -43,6 +79,7 @@ app.use((err, _req, res, next) => {
   next(err);
 });
 const ROOT = process.cwd();
+const REPO_ROOT = path.resolve(ROOT, "..");
 const UPLOADS_DIR = path.join(ROOT, "uploads");
 const MEDIA_DIR = path.join(ROOT, "media");
 
