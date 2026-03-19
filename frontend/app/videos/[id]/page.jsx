@@ -1,35 +1,54 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
+import { useAuth } from "../../_context/AuthContext";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_KEY || "admin-demo-key";
 
-async function getVideos() {
-  const res = await fetch(`${API_BASE_URL}/api/videos`, {
-    headers: { "x-api-key": ADMIN_KEY },
-    cache: "no-store"
-  });
-  return res.json();
-}
+export default function VideoPage() {
+  const params = useParams();
+  const id = params?.id;
+  const { apiKey } = useAuth();
+  const [video, setVideo] = useState(null);
+  const [embed, setEmbed] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-async function getEmbed(id) {
-  const res = await fetch(`${API_BASE_URL}/api/videos/${id}/embed`, {
-    method: "POST",
-    headers: { "x-api-key": ADMIN_KEY, "content-type": "application/json" },
-    body: JSON.stringify({})
-  });
-  return res.json();
-}
+  useEffect(() => {
+    if (!id || !apiKey) return;
+    setLoading(true);
+    fetch(`${API_BASE_URL}/api/videos`, { headers: { "x-api-key": apiKey }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        const v = data.videos?.find((x) => x.id === id);
+        setVideo(v || null);
+        if (v?.status === "ready") {
+          return fetch(`${API_BASE_URL}/api/videos/${id}/embed`, {
+            method: "POST",
+            headers: { "x-api-key": apiKey, "content-type": "application/json" },
+            body: JSON.stringify({})
+          }).then((res) => (res.ok ? res.json() : null));
+        }
+        return null;
+      })
+      .then((embedData) => setEmbed(embedData || null))
+      .catch(() => setVideo(null))
+      .finally(() => setLoading(false));
+  }, [id, apiKey]);
 
-export default async function VideoPage({ params }) {
-  const { id } = await params;
-  const data = await getVideos();
-  const video = data.videos.find((v) => v.id === id);
-
-  if (!video) {
-    return <main className="container"><div className="card">Video not found.</div></main>;
+  if (loading) {
+    return (
+      <main className="container">
+        <div className="card"><div className="small">Loading…</div></div>
+      </main>
+    );
   }
-
-  let embed = null;
-  if (video.status === "ready") {
-    embed = await getEmbed(video.id);
+  if (!video) {
+    return (
+      <main className="container">
+        <div className="card">Video not found.</div>
+      </main>
+    );
   }
 
   return (

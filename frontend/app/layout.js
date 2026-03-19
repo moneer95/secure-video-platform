@@ -1,5 +1,7 @@
 import "../globals.css";
 import Link from "next/link";
+import { AuthProvider } from "./_context/AuthContext";
+import Topbar from "./_components/Topbar";
 
 export const metadata = {
   title: "EA Dental Video Platform",
@@ -10,30 +12,17 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <div className="appShell">
-          <header className="topbar">
-            <div className="container topbarInner">
-              <Link href="/" className="brand">
-                <div className="logoMark" aria-hidden />
-                <div>
-                  <div className="brandTitle">EA Dental</div>
-                  <div className="brandSub">Video Platform</div>
-                </div>
-              </Link>
-              <nav className="topbarNav" aria-label="Main">
-                <Link href="/" className="topbarNavLink">Videos</Link>
-                <Link href="/upload" className="topbarNavLink">Upload</Link>
-                <Link href="/categories" className="topbarNavLink">Categories</Link>
-              </nav>
-            </div>
-          </header>
-          {children}
-          <footer className="footer">
-            <div className="container footerInner">
-              <span className="small">EA Dental Video Platform</span>
-            </div>
-          </footer>
-        </div>
+        <AuthProvider>
+          <div className="appShell">
+            <Topbar />
+            {children}
+            <footer className="footer">
+              <div className="container footerInner">
+                <span className="small">EA Dental Video Platform</span>
+              </div>
+            </footer>
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );

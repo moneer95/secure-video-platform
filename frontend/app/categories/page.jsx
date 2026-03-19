@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "../_context/AuthContext";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_KEY || "admin-demo-key";
 
 export default function CategoriesPage() {
+  const { apiKey } = useAuth();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -17,15 +18,16 @@ export default function CategoriesPage() {
   const [error, setError] = useState("");
 
   function load() {
+    if (!apiKey) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": ADMIN_KEY } })
+    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": apiKey } })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load"))))
       .then((data) => setCategories(data.categories || []))
       .catch(() => setError("Failed to load categories"))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => load(), []);
+  useEffect(() => { if (apiKey) load(); }, [apiKey]);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -36,7 +38,7 @@ export default function CategoriesPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/categories`, {
         method: "POST",
-        headers: { "x-api-key": ADMIN_KEY, "content-type": "application/json" },
+        headers: { "x-api-key": apiKey, "content-type": "application/json" },
         body: JSON.stringify({ name })
       });
       const data = await res.json();
@@ -68,7 +70,7 @@ export default function CategoriesPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/categories/${editingId}`, {
         method: "PATCH",
-        headers: { "x-api-key": ADMIN_KEY, "content-type": "application/json" },
+        headers: { "x-api-key": apiKey, "content-type": "application/json" },
         body: JSON.stringify({ name })
       });
       const data = await res.json();
@@ -91,7 +93,7 @@ export default function CategoriesPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/categories/${id}`, {
         method: "DELETE",
-        headers: { "x-api-key": ADMIN_KEY }
+        headers: { "x-api-key": apiKey }
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

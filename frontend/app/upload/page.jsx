@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "../_context/AuthContext";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_KEY || "admin-demo-key";
 const DEFAULT_CATEGORY_NAMES = ["Tutorials", "Marketing", "Training", "Education", "Other"];
 
 export default function UploadPage() {
+  const { apiKey } = useAuth();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [categoryNames, setCategoryNames] = useState(DEFAULT_CATEGORY_NAMES);
@@ -17,7 +18,8 @@ export default function UploadPage() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": ADMIN_KEY } })
+    if (!apiKey) return;
+    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": apiKey } })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((data) => {
         const list = data.categories || [];
@@ -25,7 +27,7 @@ export default function UploadPage() {
         setCategoryNames(names);
       })
       .catch(() => {});
-  }, []);
+  }, [apiKey]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -40,7 +42,7 @@ export default function UploadPage() {
 
     const res = await fetch(`${API_BASE_URL}/api/upload`, {
       method: "POST",
-      headers: { "x-api-key": ADMIN_KEY },
+      headers: { "x-api-key": apiKey },
       body: form
     });
 

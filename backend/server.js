@@ -120,6 +120,12 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/login", (req, res) => {
+  const apiKey = req.body && typeof req.body.apiKey === "string" ? req.body.apiKey.trim() : "";
+  if (apiKey !== ADMIN_KEY) return res.status(401).json({ error: "Invalid admin key" });
+  res.json({ ok: true });
+});
+
 app.get("/api/videos", requireAdmin, (_req, res) => {
   const rows = db.prepare("SELECT * FROM videos ORDER BY created_at DESC").all();
   res.json({ videos: rows });
