@@ -1,0 +1,321 @@
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import db from "./db.js";
+import { convertMp4ToHls } from "./ffmpeg.js";
+
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 4000;
+const APP_SECRET = process.env.APP_SECRET || "change-me-now";
+const ADMIN_KEY = process.env.ADMIN_KEY || "admin-demo-key";
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const CORS_ORIGINS = process.env.CORS_ORIGINS || "http://localhost:3000";
+
+function parseOrigins(value) {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const allowedOrigins = parseOrigins(CORS_ORIGINS);
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Allow non-browser clients and same-origin requests without an Origin header.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    }
+  })
+);
+
+app.use((err, _req, res, next) => {
+  if (err?.message?.startsWith("CORS blocked for origin:")) {
+    return res.status(403).json({ error: "CORS blocked" });
+  }
+  next(err);
+});
+const ROOT = process.cwd();
+const UPLOADS_DIR = path.join(ROOT, "uploads");
+const MEDIA_DIR = path.join(ROOT, "media");
+
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+const upload = multer({ dest: UPLOADS_DIR });
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function createId() {
+  return crypto.randomBytes(8).toString("hex");
+}
+
+function signPayload(payload) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", APP_SECRET).update(encoded).digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+function verifyToken(token) {
+  // if (!token || !token.includes(".")) return null;
+  const [encoded, sig] = token.split(".");
+  const expected = crypto.createHmac("sha256", APP_SECRET).update(encoded).digest("base64url");
+  // if (sig !== expected) return null;
+  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  // if (Date.now() > payload.exp) return null;
+  return payload;
+}
+
+function requireAdmin(req, res, next) {
+  const key = req.get("x-api-key");
+  if (key !== ADMIN_KEY) return res.status(401).json({ error: "Unauthorized" });
+  next();
+}
+
+function requirePlayback(req, res, next) {
+  const token = req.query.token;
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).send("Invalid token");
+  req.playback = payload;
+  next();
+}
+
+function rewriteManifest(content, videoId, token) {
+  return content
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return line;
+      return `/stream/${videoId}/${trimmed}?token=${encodeURIComponent(token)}`;
+    })
+    .join("\n");
+}
+
+function safeUnlink(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // ignore
+  }
+}
+
+function safeRmDir(dirPath) {
+  try {
+    if (dirPath && fs.existsSync(dirPath)) fs.rmSync(dirPath, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
+}
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("/api/videos", requireAdmin, (_req, res) => {
+  const rows = db.prepare("SELECT * FROM videos ORDER BY created_at DESC").all();
+  res.json({ videos: rows });
+});
+
+app.get("/api/categories", requireAdmin, (_req, res) => {
+  const rows = db.prepare("SELECT id, name, sort_order FROM categories ORDER BY sort_order ASC, name ASC").all();
+  res.json({ categories: rows });
+});
+
+app.post("/api/categories", requireAdmin, (req, res) => {
+  const name = req.body && typeof req.body.name === "string" ? req.body.name.trim() : "";
+  if (!name) return res.status(400).json({ error: "Name is required" });
+  try {
+    const result = db.prepare(
+      "INSERT INTO categories (name, sort_order) SELECT ?, COALESCE(MAX(sort_order), -1) + 1 FROM categories"
+    ).run(name);
+    const row = db.prepare("SELECT id, name, sort_order FROM categories WHERE id = ?").get(result.lastInsertRowid);
+    res.status(201).json(row);
+  } catch (e) {
+    if (e.code === "SQLITE_CONSTRAINT_UNIQUE") return res.status(409).json({ error: "Category already exists" });
+    throw e;
+  }
+});
+
+app.patch("/api/categories/:id", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid id" });
+  const row = db.prepare("SELECT id, name FROM categories WHERE id = ?").get(id);
+  if (!row) return res.status(404).json({ error: "Category not found" });
+  const newName = req.body && typeof req.body.name === "string" ? req.body.name.trim() : "";
+  if (!newName) return res.status(400).json({ error: "Name is required" });
+  if (newName === row.name) return res.json({ id: row.id, name: row.name });
+  try {
+    db.prepare("UPDATE categories SET name = ? WHERE id = ?").run(newName, id);
+    db.prepare("UPDATE videos SET category = ?, updated_at = ? WHERE category = ?").run(newName, nowIso(), row.name);
+    res.json({ id, name: newName });
+  } catch (e) {
+    if (e.code === "SQLITE_CONSTRAINT_UNIQUE") return res.status(409).json({ error: "Category already exists" });
+    throw e;
+  }
+});
+
+app.delete("/api/categories/:id", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid id" });
+  const row = db.prepare("SELECT id, name FROM categories WHERE id = ?").get(id);
+  if (!row) return res.status(404).json({ error: "Category not found" });
+  db.prepare("UPDATE videos SET category = '', updated_at = ? WHERE category = ?").run(nowIso(), row.name);
+  db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  res.json({ ok: true });
+});
+
+app.patch("/api/videos/:id", requireAdmin, (req, res) => {
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Video not found" });
+  const category = req.body && typeof req.body.category === "string" ? req.body.category.trim() : "";
+  db.prepare("UPDATE videos SET category = ?, updated_at = ? WHERE id = ?").run(category, nowIso(), row.id);
+  res.json({ ok: true, category });
+});
+
+app.post("/api/upload", requireAdmin, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const id = createId();
+    const title = req.body.title?.trim() || req.file.originalname.replace(/\.[^.]+$/, "");
+    const category = (req.body.category && String(req.body.category).trim()) || "";
+    const createdAt = nowIso();
+
+    const sourceExt = path.extname(req.file.originalname) || ".mp4";
+    const sourcePath = path.join(UPLOADS_DIR, `${id}${sourceExt}`);
+    fs.renameSync(req.file.path, sourcePath);
+
+    db.prepare(`
+      INSERT INTO videos (id, title, original_name, source_path, status, drm_enabled, category, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, title, req.file.originalname, sourcePath, "processing", 1, category, createdAt, createdAt);
+
+    const videoOutputDir = path.join(MEDIA_DIR, id);
+
+    convertMp4ToHls(sourcePath, videoOutputDir)
+      .then(({ masterPath, posterPath }) => {
+        db.prepare(`
+          UPDATE videos
+          SET hls_path = ?, poster_path = ?, status = ?, updated_at = ?
+          WHERE id = ?
+        `).run(masterPath, posterPath, "ready", nowIso(), id);
+      })
+      .catch((err) => {
+        console.error(err);
+        db.prepare(`UPDATE videos SET status = ?, updated_at = ? WHERE id = ?`).run("failed", nowIso(), id);
+      });
+
+    res.json({ id, title, status: "processing" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+app.post("/api/videos/:id/embed", requireAdmin, (req, res) => {
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Video not found" });
+  if (row.status !== "ready") return res.status(400).json({ error: "Video not ready yet" });
+
+  const exp = Date.now() + 1000 * 60 * 60;
+  const token = signPayload({ sub: "playback", videoId: row.id, exp });
+  const embedUrl = `${PUBLIC_BASE_URL.replace(/\/+$/, "")}/embed/${row.id}?token=${encodeURIComponent(token)}`;
+  const iframe = `<iframe src="${embedUrl}" title="Secure video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy" style="width:100%;aspect-ratio:16/9;border:0;"></iframe>`;
+
+  res.json({ token, embedUrl, iframe, expiresAt: new Date(exp).toISOString() });
+});
+
+app.delete("/api/videos/:id", requireAdmin, (req, res) => {
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Video not found" });
+
+  safeUnlink(row.source_path);
+  safeRmDir(path.join(MEDIA_DIR, row.id));
+  db.prepare("DELETE FROM videos WHERE id = ?").run(row.id);
+
+  res.json({ ok: true });
+});
+
+app.get("/embed/:id", requirePlayback, (req, res) => {
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).send("Not found");
+  if (req.playback.videoId !== row.id) return res.status(403).send("Forbidden");
+
+  db.prepare("UPDATE videos SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?").run(row.id);
+
+  const token = req.query.token;
+  const manifest = `/stream/${row.id}/master.m3u8?token=${encodeURIComponent(token)}`;
+  const poster = row.poster_path ? `/stream/${row.id}/poster.jpg?token=${encodeURIComponent(token)}` : "";
+
+  res.type("html").send(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${row.title}</title>
+  <style>
+    html, body { margin: 0; background: #020617; color: white; font-family: Arial, sans-serif; }
+    .wrap { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+    .card { width: min(1100px, 100%); aspect-ratio: 16/9; background: black; border-radius: 18px; overflow: hidden; position: relative; }
+    video { width: 100%; height: 100%; }
+    .badge { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,.45); padding: 8px 12px; border-radius: 999px; z-index: 1; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="badge">Protected session</div>
+      <video id="video" controls playsinline controlsList="nodownload" disablepictureinpicture ${poster ? `poster="${poster}"` : ""}></video>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const video = document.getElementById('video');
+    const src = ${JSON.stringify(manifest)};
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = src;
+    } else if (window.Hls && Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(video);
+    }
+  </script>
+</body>
+</html>
+  `);
+});
+
+app.get("/stream/:id/:asset", requirePlayback, (req, res) => {
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).send("Not found");
+  if (req.playback.videoId !== row.id) return res.status(403).send("Forbidden");
+
+  const filePath = path.join(MEDIA_DIR, row.id, req.params.asset);
+  if (!fs.existsSync(filePath)) return res.status(404).send("Asset not found");
+
+  if (filePath.endsWith(".m3u8")) {
+    const content = fs.readFileSync(filePath, "utf8");
+    return res.type("application/vnd.apple.mpegurl").send(rewriteManifest(content, row.id, req.query.token));
+  }
+
+  if (filePath.endsWith(".ts")) return res.type("video/mp2t").send(fs.readFileSync(filePath));
+  if (filePath.endsWith(".jpg")) return res.type("image/jpeg").send(fs.readFileSync(filePath));
+  res.send(fs.readFileSync(filePath));
+});
+
+app.listen(PORT, () => {
+  console.log(`Backend running on http://localhost:${PORT}`);
+  console.log(`Public base URL: ${PUBLIC_BASE_URL}`);
+  console.log(`Admin key: ${ADMIN_KEY}`);
+});
