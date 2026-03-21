@@ -16,7 +16,7 @@ echo "--- Backend ---"
 pm2 restart video-backend
 
 echo "--- Frontend ---"
-(cd frontend && npm i && npm run build)
+(cd ../frontend && npm i && npm run build)
 pm2 restart video-frontend
 
 pm2 save
