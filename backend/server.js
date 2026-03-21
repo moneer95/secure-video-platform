@@ -36,6 +36,23 @@ function verifyGitHubSignature(rawBody, sigHeader) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/** GitHub sends either raw JSON or `application/x-www-form-urlencoded` with `payload=<url-encoded-json>`. */
+function parseGitHubWebhookPayload(text, contentType) {
+  const trimmed = text.replace(/^\uFEFF/, "").trim();
+  const ct = contentType || "";
+  const looksForm =
+    /^payload=/i.test(trimmed) || /application\/x-www-form-urlencoded/i.test(ct);
+
+  if (looksForm) {
+    const params = new URLSearchParams(trimmed);
+    const jsonStr = params.get("payload");
+    if (!jsonStr) throw new Error("missing payload in form body");
+    return JSON.parse(jsonStr);
+  }
+
+  return JSON.parse(trimmed);
+}
+
 // Always parse POST body as raw bytes here (type: () => true) so GitHub's JSON is never skipped.
 // Using type: "*/*" alone can leave req.body empty behind some proxies / Express matchers.
 app.post(
@@ -51,12 +68,12 @@ app.post(
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
-      const text = rawBuf.toString("utf8").replace(/^\uFEFF/, "");
+      const text = rawBuf.toString("utf8");
       if (!text || !text.trim()) {
         console.error("[deploy] empty body; content-length was", req.get("content-length"));
         return res.status(400).json({ error: "Bad payload", detail: "empty body" });
       }
-      const payload = JSON.parse(text);
+      const payload = parseGitHubWebhookPayload(text, req.get("content-type"));
       if (payload.ref !== "refs/heads/main") {
         return res.status(200).json({ ok: true, skipped: "not main branch" });
       }

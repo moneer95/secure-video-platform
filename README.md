@@ -105,7 +105,7 @@ No GitHub Actions. When you **push to `main`**, GitHub sends a webhook to your s
 
 1. Open your repo on GitHub → **Settings** → **Webhooks** → **Add webhook**.
 2. **Payload URL**: your backend URL + `/api/webhook/deploy`, e.g. `https://api.yourdomain.com/api/webhook/deploy`. Must be reachable from the internet.
-3. **Content type**: `application/json`.
+3. **Content type**: `application/json` (recommended). If you use **`application/x-www-form-urlencoded`**, the server still accepts it (GitHub sends `payload=<json>`).
 4. **Secret**: generate one (e.g. run `openssl rand -hex 32`) and paste it. **Use the same value** in `backend/.env` as `GITHUB_WEBHOOK_SECRET`.
 5. **Which events**: choose **Just the push event** (or “Let me select…” and tick “Pushes”).
 6. Save. GitHub will send a POST to that URL on every push; the backend only runs the deploy when `ref` is `refs/heads/main`.
