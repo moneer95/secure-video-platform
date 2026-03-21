@@ -63,11 +63,12 @@ const isProd = process.env.NODE_ENV === "production";
 /** Cross-site cookies (frontend on another domain): needs HTTPS + SameSite=None. Set COOKIE_SECURE=true if NODE_ENV is not production. */
 const cookieSecure = process.env.COOKIE_SECURE === "true" || isProd;
 
-// CORS: allow any origin (reflect request Origin). Required for credentials: true — cannot use "*".
 app.use(
   cors({
+    origin: ["https://video-hosting.ea-dental.com"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "x-api-key", "Authorization"],
     credentials: true,
-    origin: true,
   })
 );
 

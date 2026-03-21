@@ -62,7 +62,7 @@ Frontend environment:
 | **Same host as Next** (local or one domain) | Leave **`NEXT_PUBLIC_API_BASE_URL` unset**. The browser uses `/api/*`; Next rewrites to the backend (`next.config.mjs` + `BACKEND_URL`). |
 | **Different domains** (e.g. app on `https://app.example.com`, API on `https://api.example.com`) | Set **`NEXT_PUBLIC_API_BASE_URL=https://api.example.com`** (your real API URL, HTTPS, no trailing slash). The browser calls the API directly; rewrites do not apply to those requests. |
 
-Split domains — backend CORS allows **all origins** (reflects `Origin`); you still need cross-site cookies:
+Split domains — CORS is configured in `server.js` (allowed origin `https://video-hosting.ea-dental.com`); add `http://localhost:3000` to the `origin` array for local dev. You still need cross-site cookies:
 
 - **HTTPS** on both sides; session cookie uses **`SameSite=None`** and **`Secure`** when cookies are secure (production `NODE_ENV`, or set **`COOKIE_SECURE=true`** on the API if you need cross-site cookies without `NODE_ENV=production`).
 - **`trust proxy`** is already enabled so secure cookies work behind TLS termination.
