@@ -31,17 +31,17 @@ pm2 -v
 echo "--- Git pull ---"
 git pull origin main
 
-echo "--- Backend ---"
-cd "$ROOT/backend"
-npm ci
-pm2 restart video-backend
-cd "$ROOT"
-
 echo "--- Frontend ---"
 cd "$ROOT/frontend"
 npm ci
 npm run build
 pm2 restart video-frontend
+cd "$ROOT"
+
+echo "--- Backend ---"
+cd "$ROOT/backend"
+npm ci
+pm2 restart video-backend
 cd "$ROOT"
 
 pm2 save
