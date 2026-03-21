@@ -31,7 +31,7 @@ http://localhost:4000
 Backend environment (recommended for production):
 - `PORT`: backend port (default `4000`)
 - `APP_SECRET`: used to sign playback tokens (**set a strong secret in prod**)
-- `SESSION_SECRET`: signs the dashboard session cookie (defaults to `APP_SECRET` if unset)
+- `SESSION_SECRET`: signs the dashboard session cookie (defaults to `APP_SECRET` if unset). Sessions are stored in **`backend/data/sessions.db`** (SQLite via `better-sqlite3-session-store`), not in memory—safe for production / PM2.
 - `ADMIN_KEY`: password used at **Sign in** (and must match what you type on the login page)
 - `PUBLIC_BASE_URL`: the public URL where the backend is reachable (used to generate `embedUrl`), e.g. `https://api.yourdomain.com`
 - `CATEGORIES`: comma-separated names used to seed the categories table on first run (e.g. `Tutorials,Marketing,Training,Education,Other`). After that, categories are managed via the dashboard **Categories** page (CRUD).
@@ -111,6 +111,21 @@ No GitHub Actions. When you **push to `main`**, GitHub sends a webhook to your s
 6. Save. GitHub will send a POST to that URL on every push; the backend only runs the deploy when `ref` is `refs/heads/main`.
 
 You don’t need any Actions or repository secrets. GitHub calls your server automatically when you push.
+
+### Autodeploy not working? Check these
+
+| Symptom | Likely cause |
+|--------|----------------|
+| GitHub **Recent Deliveries** shows **401** | `GITHUB_WEBHOOK_SECRET` missing, wrong, or has extra spaces vs GitHub → **Webhook** → Secret. Restart PM2 after editing `backend/.env`. |
+| **401** after changing secret | PM2 didn’t reload env — run `pm2 restart video-backend` or redeploy from shell. |
+| **Invalid signature** (if you log it) | Secret mismatch; or raw body altered by a proxy (rare). This repo verifies the raw body; keep **Content type** `application/json` in GitHub. |
+| Delivery **200** with `"skipped":"not main branch"` | Push wasn’t to **`main`** (e.g. you use `master` or a feature branch). |
+| Delivery **202** but site unchanged | Deploy script failed — open **`deploy.log`** at repo root and **`pm2 logs video-backend`** for `[deploy] FAILED` and npm/git errors. |
+| **`pm2: command not found`** in `deploy.log` | The user running Node doesn’t have **global** `pm2` on `PATH` (common with **nvm**). Install `pm2` globally and ensure the same user runs deploy, or put `pm2` on the system PATH. |
+| **`git pull` failed** | Server clone has no **read** access to GitHub (add deploy key / SSH / HTTPS token). |
+| Webhook URL wrong | Must be exactly `https://<your-api-host>/api/webhook/deploy` (HTTPS, no typo). |
+
+On server boot, the backend logs either **`[deploy] GitHub webhook enabled`** or a **warning** that the secret is empty.
 
 ### PM2 on the server
 

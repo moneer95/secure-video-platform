@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
@@ -6,29 +7,45 @@ import path from "path";
 import crypto from "crypto";
 import { exec } from "child_process";
 import session from "express-session";
+import Database from "better-sqlite3";
+import sqliteStoreFactory from "better-sqlite3-session-store";
 import db from "./db.js";
 import { convertMp4ToHls } from "./ffmpeg.js";
-import "dotenv/config";
+
+const SqliteStore = sqliteStoreFactory(session);
 
 const app = express();
 // Must be first: secure cookies / req.secure behind Cloudflare or other reverse proxies
 app.set("trust proxy", 1);
 
 // GitHub webhook needs raw body for signature verification; must be before express.json()
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || process.env.DEPLOY_WEBHOOK_SECRET || "";
+const GITHUB_WEBHOOK_SECRET = (
+  process.env.GITHUB_WEBHOOK_SECRET ||
+  process.env.DEPLOY_WEBHOOK_SECRET ||
+  ""
+).trim();
 
-app.use(
+function verifyGitHubSignature(rawBody, sigHeader) {
+  if (!GITHUB_WEBHOOK_SECRET || !sigHeader || !sigHeader.startsWith("sha256=")) return false;
+  const buf = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody || "", "utf8");
+  const expected =
+    "sha256=" + crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(buf).digest("hex");
+  const a = Buffer.from(sigHeader, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Accept any Content-Type so GitHub's `application/json; charset=utf-8` always gets a raw body
+app.post(
   "/api/webhook/deploy",
-  express.raw({ type: "application/json" }),
-  (req, res, next) => {
+  express.raw({ type: "*/*", limit: "1mb" }),
+  (req, res) => {
     const sig = req.get("x-hub-signature-256");
-    if (!GITHUB_WEBHOOK_SECRET || !sig || !sig.startsWith("sha256=")) {
+    if (!verifyGitHubSignature(req.body, sig)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const expected = "sha256=" + crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(req.body).digest("hex");
-    if (sig !== expected) return res.status(401).json({ error: "Invalid signature" });
     try {
-      const payload = JSON.parse(req.body.toString());
+      const payload = JSON.parse(req.body.toString("utf8"));
       if (payload.ref !== "refs/heads/main") {
         return res.status(200).json({ ok: true, skipped: "not main branch" });
       }
@@ -38,15 +55,19 @@ app.use(
       }
       const repoRoot = path.resolve(process.cwd(), "..");
       const logFile = path.join(repoRoot, "deploy.log");
-      exec(`cd "${repoRoot}" && chmod +x scripts/deploy.sh && ./scripts/deploy.sh 2>&1`, (err, stdout, stderr) => {
-        const out = [stdout, stderr].filter(Boolean).join("\n");
-        const line = `[${new Date().toISOString()}] ${err ? "FAILED" : "OK"} ${err ? err.message : ""}\n${out}`;
-        console.log("[deploy]", err ? "FAILED" : "OK", err ? err.message : "");
-        if (out) console.log(out);
-        try {
-          fs.appendFileSync(logFile, line + "\n");
-        } catch (_) {}
-      });
+      exec(
+        `cd "${repoRoot}" && chmod +x scripts/deploy.sh && ./scripts/deploy.sh 2>&1`,
+        { maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const out = [stdout, stderr].filter(Boolean).join("\n");
+          const line = `[${new Date().toISOString()}] ${err ? "FAILED" : "OK"} ${err ? err.message : ""}\n${out}`;
+          console.log("[deploy]", err ? "FAILED" : "OK", err ? err.message : "");
+          if (out) console.log(out);
+          try {
+            fs.appendFileSync(logFile, line + "\n");
+          } catch (_) {}
+        }
+      );
       res.status(202).json({ ok: true, message: "Deploy started" });
     } catch (e) {
       res.status(400).json({ error: "Bad payload" });
@@ -86,10 +107,21 @@ app.options(
 
 app.use(express.json());
 
+const SESSION_DB_PATH = path.join(process.cwd(), "data", "sessions.db");
+fs.mkdirSync(path.dirname(SESSION_DB_PATH), { recursive: true });
+const sessionDb = new Database(SESSION_DB_PATH);
+
 app.use(
   session({
     name: "ea_dental.sid",
     secret: SESSION_SECRET,
+    store: new SqliteStore({
+      client: sessionDb,
+      expired: {
+        clear: true,
+        intervalMs: 15 * 60 * 1000,
+      },
+    }),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -398,5 +430,12 @@ app.get("/stream/:id/:asset", requirePlayback, (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
   console.log(`Public base URL: ${PUBLIC_BASE_URL}`);
+  if (!GITHUB_WEBHOOK_SECRET) {
+    console.warn(
+      "[deploy] GITHUB_WEBHOOK_SECRET is empty — POST /api/webhook/deploy will return 401. Set it in backend/.env (same as GitHub webhook secret)."
+    );
+  } else {
+    console.log("[deploy] GitHub webhook enabled at POST /api/webhook/deploy");
+  }
   console.log(`Admin key: ${ADMIN_KEY}`);
 });
