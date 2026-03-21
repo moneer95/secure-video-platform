@@ -101,7 +101,20 @@ You don’t need any Actions or repository secrets. GitHub calls your server aut
 
 ### PM2 on the server
 
-- **Backend**: `video-backend`. **Frontend**: `video-frontend` (Next on port 3000). Use **`ecosystem.config.cjs`** at repo root.
+- **Backend**: `video-backend`. **Frontend**: `video-frontend` (Next on port 3000).
+- Config file is **`ecosystem.config.cjs`** at the **repo root** (not inside `frontend/` or `backend/`).
+
+**Start or restart from repo root:**
+
+```bash
+cd ~/secure-video-platform
+pm2 start ecosystem.config.cjs
+# or to restart after deploy:
+pm2 restart video-backend video-frontend
+pm2 save
+```
+
+Do not run `pm2 start` from inside `frontend/` or `backend/`; PM2 expects the ecosystem file at the path above.
 
 ### Manual deploy
 

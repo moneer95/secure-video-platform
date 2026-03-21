@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { exec } from "child_process";
 import db from "./db.js";
 import { convertMp4ToHls } from "./ffmpeg.js";
+import "dotenv/config";
 
 const app = express();
 
@@ -33,9 +34,15 @@ app.use(
         return res.status(500).json({ error: "Deploy script not found" });
       }
       const repoRoot = path.resolve(process.cwd(), "..");
-      exec(`cd "${repoRoot}" && chmod +x scripts/deploy.sh && ./scripts/deploy.sh`, (err, stdout, stderr) => {
-        if (err) console.error("Deploy error:", err, stderr);
-        else if (stdout) console.log("Deploy output:", stdout);
+      const logFile = path.join(repoRoot, "deploy.log");
+      exec(`cd "${repoRoot}" && chmod +x scripts/deploy.sh && ./scripts/deploy.sh 2>&1`, (err, stdout, stderr) => {
+        const out = [stdout, stderr].filter(Boolean).join("\n");
+        const line = `[${new Date().toISOString()}] ${err ? "FAILED" : "OK"} ${err ? err.message : ""}\n${out}`;
+        console.log("[deploy]", err ? "FAILED" : "OK", err ? err.message : "");
+        if (out) console.log(out);
+        try {
+          fs.appendFileSync(logFile, line + "\n");
+        } catch (_) {}
       });
       res.status(202).json({ ok: true, message: "Deploy started" });
     } catch (e) {
