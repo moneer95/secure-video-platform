@@ -1,23 +1,48 @@
 #!/usr/bin/env bash
-# Run from repo root: ./scripts/deploy.sh
 set -euo pipefail
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# PM2/git must be on PATH (nvm: start PM2 from an interactive shell once, or symlink pm2 into /usr/local/bin)
-command -v git >/dev/null 2>&1 || { echo "deploy: git not in PATH"; exit 1; }
-command -v pm2 >/dev/null 2>&1 || { echo "deploy: pm2 not in PATH (install: npm i -g pm2)"; exit 1; }
+LOG="$ROOT/deploy-manual.log"
+exec >> "$LOG" 2>&1
+
+echo "===== $(date) deploy started ====="
+echo "USER=$(whoami)"
+echo "PWD=$(pwd)"
+echo "PATH=$PATH"
+
+# If using nvm, load it explicitly
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  . "$NVM_DIR/nvm.sh"
+fi
+
+command -v git || { echo "git not found"; exit 1; }
+command -v node || { echo "node not found"; exit 1; }
+command -v npm || { echo "npm not found"; exit 1; }
+command -v pm2 || { echo "pm2 not found"; exit 1; }
+
+echo "--- versions ---"
+node -v
+npm -v
+pm2 -v
 
 echo "--- Git pull ---"
 git pull origin main
 
 echo "--- Backend ---"
-(cd backend && npm i)
+cd "$ROOT/backend"
+npm ci
 pm2 restart video-backend
+cd "$ROOT"
 
 echo "--- Frontend ---"
-(cd frontend && npm i && npm run build)
+cd "$ROOT/frontend"
+npm ci
+npm run build
 pm2 restart video-frontend
+cd "$ROOT"
 
 pm2 save
-echo "Deploy done."
+echo "===== deploy done ====="
