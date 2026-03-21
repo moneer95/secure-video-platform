@@ -11,6 +11,7 @@ import { convertMp4ToHls } from "./ffmpeg.js";
 import "dotenv/config";
 
 const app = express();
+app.use(cors());
 app.set("trust proxy", 1);
 
 // GitHub webhook needs raw body for signature verification; must be before express.json()
