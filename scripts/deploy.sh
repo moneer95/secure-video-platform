@@ -1,16 +1,3 @@
-LOCKFILE="/tmp/deploy.lock"
-
-if [ -f "$LOCKFILE" ]; then
-  echo "Deploy already running. Waiting..."
-  while [ -f "$LOCKFILE" ]; do
-    sleep 2
-  done
-fi
-
-touch "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
-
-
 #!/usr/bin/env bash
 set -euo pipefail
 
