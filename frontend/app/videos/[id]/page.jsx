@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useAuth } from "../../_context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch } from "../../../lib/api";
 
 export default function VideoPage() {
   const params = useParams();
