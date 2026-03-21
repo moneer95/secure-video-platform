@@ -16,6 +16,7 @@ export function apiUrl(path) {
 }
 
 export function apiFetch(path, options = {}) {
+  console.log(apiUrl(path))
   return fetch(apiUrl(path), {
     ...options,
     credentials: "include",
