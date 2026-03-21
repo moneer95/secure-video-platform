@@ -36,17 +36,27 @@ function verifyGitHubSignature(rawBody, sigHeader) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Accept any Content-Type so GitHub's `application/json; charset=utf-8` always gets a raw body
+// Always parse POST body as raw bytes here (type: () => true) so GitHub's JSON is never skipped.
+// Using type: "*/*" alone can leave req.body empty behind some proxies / Express matchers.
 app.post(
   "/api/webhook/deploy",
-  express.raw({ type: "*/*", limit: "1mb" }),
+  express.raw({ type: () => true, limit: "1mb" }),
   (req, res) => {
     const sig = req.get("x-hub-signature-256");
-    if (!verifyGitHubSignature(req.body, sig)) {
+    // body-parser may skip and leave {} if hasBody() is false (proxy stripped Content-Length, etc.)
+    const rawBuf = Buffer.isBuffer(req.body)
+      ? req.body
+      : Buffer.alloc(0);
+    if (!verifyGitHubSignature(rawBuf, sig)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
-      const payload = JSON.parse(req.body.toString("utf8"));
+      const text = rawBuf.toString("utf8").replace(/^\uFEFF/, "");
+      if (!text || !text.trim()) {
+        console.error("[deploy] empty body; content-length was", req.get("content-length"));
+        return res.status(400).json({ error: "Bad payload", detail: "empty body" });
+      }
+      const payload = JSON.parse(text);
       if (payload.ref !== "refs/heads/main") {
         return res.status(200).json({ ok: true, skipped: "not main branch" });
       }
@@ -71,7 +81,8 @@ app.post(
       );
       res.status(202).json({ ok: true, message: "Deploy started" });
     } catch (e) {
-      res.status(400).json({ error: "Bad payload" });
+      console.error("[deploy] JSON parse failed:", e?.message || e, "bodyLen=", rawBuf.length);
+      res.status(400).json({ error: "Bad payload", detail: "invalid JSON" });
     }
   }
 );
