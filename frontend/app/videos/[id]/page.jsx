@@ -3,29 +3,28 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useAuth } from "../../_context/AuthContext";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+import { apiFetch } from "../../lib/api";
 
 export default function VideoPage() {
   const params = useParams();
   const id = params?.id;
-  const { apiKey } = useAuth();
+  const { authenticated } = useAuth();
   const [video, setVideo] = useState(null);
   const [embed, setEmbed] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!id || !apiKey) return;
+    if (!id || !authenticated) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/videos`, { headers: { "x-api-key": apiKey }, cache: "no-store" })
+    apiFetch("/api/videos", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => {
         const v = data.videos?.find((x) => x.id === id);
         setVideo(v || null);
         if (v?.status === "ready") {
-          return fetch(`${API_BASE_URL}/api/videos/${id}/embed`, {
+          return apiFetch(`/api/videos/${id}/embed`, {
             method: "POST",
-            headers: { "x-api-key": apiKey, "content-type": "application/json" },
+            headers: { "content-type": "application/json" },
             body: JSON.stringify({})
           }).then((res) => (res.ok ? res.json() : null));
         }
@@ -34,7 +33,7 @@ export default function VideoPage() {
       .then((embedData) => setEmbed(embedData || null))
       .catch(() => setVideo(null))
       .finally(() => setLoading(false));
-  }, [id, apiKey]);
+  }, [id, authenticated]);
 
   if (loading) {
     return (

@@ -3,8 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "../_context/AuthContext";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+import { apiFetch } from "../../lib/api";
 const DEFAULT_CATEGORY_NAMES = ["Tutorials", "Marketing", "Training", "Education", "Other"];
 
 function formatDate(iso) {
@@ -28,7 +27,7 @@ function StatusBadge({ status }) {
 }
 
 export default function VideoList({ videos }) {
-  const { apiKey } = useAuth();
+  const { authenticated } = useAuth();
   const [q, setQ] = useState("");
   const [items, setItems] = useState(() => videos);
   const [deletingId, setDeletingId] = useState(null);
@@ -37,15 +36,15 @@ export default function VideoList({ videos }) {
   const [updatingCategoryId, setUpdatingCategoryId] = useState(null);
 
   useEffect(() => {
-    if (!apiKey) return;
-    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": apiKey } })
+    if (!authenticated) return;
+    apiFetch("/api/categories")
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((data) => {
         const list = data.categories || [];
         setCategoryList(Array.isArray(list) && list.length > 0 ? list : DEFAULT_CATEGORY_NAMES.map((name) => ({ id: name, name, sort_order: 0 })));
       })
       .catch(() => {});
-  }, [apiKey]);
+  }, [authenticated]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -109,9 +108,9 @@ export default function VideoList({ videos }) {
                         const newCategory = e.target.value;
                         setUpdatingCategoryId(v.id);
                         try {
-                          const res = await fetch(`${API_BASE_URL}/api/videos/${v.id}`, {
+                          const res = await apiFetch(`/api/videos/${v.id}`, {
                             method: "PATCH",
-                            headers: { "x-api-key": apiKey, "content-type": "application/json" },
+                            headers: { "content-type": "application/json" },
                             body: JSON.stringify({ category: newCategory })
                           });
                           if (!res.ok) throw new Error("Update failed");
@@ -154,9 +153,9 @@ export default function VideoList({ videos }) {
                           if (v.status !== "ready") return;
                           setCopyingIframeId(v.id);
                           try {
-                            const res = await fetch(`${API_BASE_URL}/api/videos/${v.id}/embed`, {
+                            const res = await apiFetch(`/api/videos/${v.id}/embed`, {
                               method: "POST",
-                              headers: { "x-api-key": apiKey, "content-type": "application/json" },
+                              headers: { "content-type": "application/json" },
                               body: JSON.stringify({})
                             });
                             const data = await res.json();
@@ -181,9 +180,8 @@ export default function VideoList({ videos }) {
                           if (!ok) return;
                           setDeletingId(v.id);
                           try {
-                            const res = await fetch(`${API_BASE_URL}/api/videos/${v.id}`, {
-                              method: "DELETE",
-                              headers: { "x-api-key": apiKey }
+                            const res = await apiFetch(`/api/videos/${v.id}`, {
+                              method: "DELETE"
                             });
                             if (!res.ok) {
                               const data = await res.json().catch(() => ({}));

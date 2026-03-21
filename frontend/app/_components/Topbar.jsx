@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../_context/AuthContext";
 
 export default function Topbar() {
-  const { apiKey, logout, ready } = useAuth();
+  const { authenticated, ready, logout } = useAuth();
 
   return (
     <header className="topbar">
@@ -16,7 +16,7 @@ export default function Topbar() {
             <div className="brandSub">Video Platform</div>
           </div>
         </Link>
-        {ready && apiKey && (
+        {ready && authenticated && (
           <nav className="topbarNav" aria-label="Main">
             <Link href="/" className="topbarNavLink">Videos</Link>
             <Link href="/upload" className="topbarNavLink">Upload</Link>

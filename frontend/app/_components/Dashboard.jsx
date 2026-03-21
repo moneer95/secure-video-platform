@@ -1,31 +1,27 @@
 "use client";
-//test
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "../_context/AuthContext";
 import VideoList from "./VideoList";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+import { apiFetch } from "../../lib/api";
 
 export default function Dashboard() {
-  const { apiKey, ready } = useAuth();
+  const { authenticated, ready } = useAuth();
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!ready || !apiKey) return;
+    if (!ready || !authenticated) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/videos`, {
-      headers: { "x-api-key": apiKey },
-      cache: "no-store"
-    })
+    apiFetch("/api/videos", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => setVideos(Array.isArray(data?.videos) ? data.videos : []))
       .catch(() => setVideos([]))
       .finally(() => setLoading(false));
-  }, [ready, apiKey]);
+  }, [ready, authenticated]);
 
-  if (!ready || !apiKey) return null;
+  if (!ready || !authenticated) return null;
 
   return (
     <main className="container">

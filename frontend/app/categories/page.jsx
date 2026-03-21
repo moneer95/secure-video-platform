@@ -3,11 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "../_context/AuthContext";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+import { apiFetch } from "../../lib/api";
 
 export default function CategoriesPage() {
-  const { apiKey } = useAuth();
+  const { authenticated } = useAuth();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -18,16 +17,16 @@ export default function CategoriesPage() {
   const [error, setError] = useState("");
 
   function load() {
-    if (!apiKey) return;
+    if (!authenticated) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": apiKey } })
+    apiFetch("/api/categories")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load"))))
       .then((data) => setCategories(data.categories || []))
       .catch(() => setError("Failed to load categories"))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { if (apiKey) load(); }, [apiKey]);
+  useEffect(() => { if (authenticated) load(); }, [authenticated]);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -36,9 +35,9 @@ export default function CategoriesPage() {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories`, {
+      const res = await apiFetch("/api/categories", {
         method: "POST",
-        headers: { "x-api-key": apiKey, "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ name })
       });
       const data = await res.json();
@@ -68,9 +67,9 @@ export default function CategoriesPage() {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories/${editingId}`, {
+      const res = await apiFetch(`/api/categories/${editingId}`, {
         method: "PATCH",
-        headers: { "x-api-key": apiKey, "content-type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ name })
       });
       const data = await res.json();
@@ -91,9 +90,8 @@ export default function CategoriesPage() {
     setDeletingId(id);
     setError("");
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories/${id}`, {
-        method: "DELETE",
-        headers: { "x-api-key": apiKey }
+      const res = await apiFetch(`/api/categories/${id}`, {
+        method: "DELETE"
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

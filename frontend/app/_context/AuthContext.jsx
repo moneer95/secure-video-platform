@@ -2,50 +2,52 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
-
-const STORAGE_KEY = "ea_dental_admin_key";
+import { apiFetch } from "../../lib/api";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [apiKey, setApiKeyState] = useState(null);
+  const [authenticated, setAuthenticated] = useState(null);
   const [ready, setReady] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.sessionStorage.getItem(STORAGE_KEY);
-    const envKey = process.env.NEXT_PUBLIC_ADMIN_KEY || "";
-    setApiKeyState(stored || envKey || null);
-    setReady(true);
-  }, []);
-
-  const setApiKey = useCallback((key) => {
-    if (key) {
-      window.sessionStorage.setItem(STORAGE_KEY, key);
-      setApiKeyState(key);
-    } else {
-      window.sessionStorage.removeItem(STORAGE_KEY);
-      setApiKeyState(null);
+  const refresh = useCallback(async () => {
+    try {
+      const r = await apiFetch("/api/auth/me");
+      setAuthenticated(r.ok);
+    } catch {
+      setAuthenticated(false);
+    } finally {
+      setReady(true);
     }
   }, []);
 
-  const logout = useCallback(() => {
-    window.sessionStorage.removeItem(STORAGE_KEY);
-    setApiKeyState(null);
+  useEffect(() => {
+    refresh();
+  }, [pathname, refresh]);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiFetch("/api/logout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    setAuthenticated(false);
     router.push("/login");
   }, [router]);
 
   useEffect(() => {
     if (!ready) return;
-    const isLoginPage = pathname === "/login";
-    if (!apiKey && !isLoginPage) {
+    const isLogin = pathname === "/login";
+    if (!authenticated && !isLogin) {
       router.replace("/login");
+    } else if (authenticated && isLogin) {
+      router.replace("/");
     }
-  }, [ready, apiKey, pathname, router]);
+  }, [ready, authenticated, pathname, router]);
 
-  const value = { apiKey, setApiKey, logout, ready };
+  const value = { authenticated, ready, logout, refresh };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

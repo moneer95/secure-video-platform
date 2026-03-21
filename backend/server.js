@@ -5,11 +5,13 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { exec } from "child_process";
+import session from "express-session";
 import db from "./db.js";
 import { convertMp4ToHls } from "./ffmpeg.js";
 import "dotenv/config";
 
 const app = express();
+app.set("trust proxy", 1);
 
 // GitHub webhook needs raw body for signature verification; must be before express.json()
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || process.env.DEPLOY_WEBHOOK_SECRET || "";
@@ -55,9 +57,13 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 4000;
 const APP_SECRET = process.env.APP_SECRET || "change-me-now";
+const SESSION_SECRET = process.env.SESSION_SECRET || APP_SECRET;
 const ADMIN_KEY = process.env.ADMIN_KEY || "admin-demo-key";
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const CORS_ORIGINS = process.env.CORS_ORIGINS || "http://localhost:3000";
+const isProd = process.env.NODE_ENV === "production";
+/** Cross-site cookies (frontend on another domain): needs HTTPS + SameSite=None. Set COOKIE_SECURE=true if NODE_ENV is not production. */
+const cookieSecure = process.env.COOKIE_SECURE === "true" || isProd;
 
 function parseOrigins(value) {
   return value
@@ -70,12 +76,12 @@ const allowedOrigins = parseOrigins(CORS_ORIGINS);
 
 app.use(
   cors({
+    credentials: true,
     origin(origin, cb) {
-      // Allow non-browser clients and same-origin requests without an Origin header.
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked for origin: ${origin}`));
-    }
+    },
   })
 );
 
@@ -85,6 +91,21 @@ app.use((err, _req, res, next) => {
   }
   next(err);
 });
+
+app.use(
+  session({
+    name: "ea_dental.sid",
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: cookieSecure,
+      sameSite: cookieSecure ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
 const ROOT = process.cwd();
 const REPO_ROOT = path.resolve(ROOT, "..");
 const UPLOADS_DIR = path.join(ROOT, "uploads");
@@ -120,8 +141,7 @@ function verifyToken(token) {
 }
 
 function requireAdmin(req, res, next) {
-  const key = req.get("x-api-key");
-  if (key !== ADMIN_KEY) return res.status(401).json({ error: "Unauthorized" });
+  if (!req.session?.admin) return res.status(401).json({ error: "Unauthorized" });
   next();
 }
 
@@ -167,7 +187,24 @@ app.get("/health", (_req, res) => {
 app.post("/api/login", (req, res) => {
   const apiKey = req.body && typeof req.body.apiKey === "string" ? req.body.apiKey.trim() : "";
   if (apiKey !== ADMIN_KEY) return res.status(401).json({ error: "Invalid admin key" });
-  res.json({ ok: true });
+  req.session.admin = true;
+  req.session.save((err) => {
+    if (err) return res.status(500).json({ error: "Could not create session" });
+    res.json({ ok: true });
+  });
+});
+
+app.post("/api/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) return res.status(500).json({ error: "Logout failed" });
+    res.clearCookie("ea_dental.sid", { path: "/" });
+    res.json({ ok: true });
+  });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  if (req.session?.admin) return res.json({ ok: true, authenticated: true });
+  res.status(401).json({ ok: false, authenticated: false });
 });
 
 app.get("/api/videos", requireAdmin, (_req, res) => {
@@ -369,6 +406,3 @@ app.listen(PORT, () => {
   console.log(`Public base URL: ${PUBLIC_BASE_URL}`);
   console.log(`Admin key: ${ADMIN_KEY}`);
 });
-
-
-//test

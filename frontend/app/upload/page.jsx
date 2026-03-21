@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../_context/AuthContext";
+import { apiFetch } from "../../lib/api";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
 const DEFAULT_CATEGORY_NAMES = ["Tutorials", "Marketing", "Training", "Education", "Other"];
 
 export default function UploadPage() {
-  const { apiKey } = useAuth();
+  const { authenticated } = useAuth();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [categoryNames, setCategoryNames] = useState(DEFAULT_CATEGORY_NAMES);
@@ -18,8 +18,8 @@ export default function UploadPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!apiKey) return;
-    fetch(`${API_BASE_URL}/api/categories`, { headers: { "x-api-key": apiKey } })
+    if (!authenticated) return;
+    apiFetch("/api/categories")
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((data) => {
         const list = data.categories || [];
@@ -27,7 +27,7 @@ export default function UploadPage() {
         setCategoryNames(names);
       })
       .catch(() => {});
-  }, [apiKey]);
+  }, [authenticated]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -40,9 +40,8 @@ export default function UploadPage() {
     form.append("category", category.trim());
     form.append("file", file);
 
-    const res = await fetch(`${API_BASE_URL}/api/upload`, {
+    const res = await apiFetch("/api/upload", {
       method: "POST",
-      headers: { "x-api-key": apiKey },
       body: form
     });
 
