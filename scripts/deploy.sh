@@ -12,11 +12,11 @@ echo "--- Git pull ---"
 git pull origin main
 
 echo "--- Backend ---"
-(cd backend && npm ci --omit=dev)
+(cd backend && npm i)
 pm2 restart video-backend
 
 echo "--- Frontend ---"
-(cd frontend && npm ci --omit=dev && npm run build)
+(cd frontend && npm i && npm run build)
 pm2 restart video-frontend
 
 pm2 save
