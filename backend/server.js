@@ -54,40 +54,24 @@ app.use(
   }
 );
 
-app.use(express.json());
-
 const PORT = process.env.PORT || 4000;
 const APP_SECRET = process.env.APP_SECRET || "change-me-now";
 const SESSION_SECRET = process.env.SESSION_SECRET || APP_SECRET;
 const ADMIN_KEY = process.env.ADMIN_KEY || "admin-demo-key";
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
-const CORS_ORIGINS = process.env.CORS_ORIGINS || "http://localhost:3000";
 const isProd = process.env.NODE_ENV === "production";
 /** Cross-site cookies (frontend on another domain): needs HTTPS + SameSite=None. Set COOKIE_SECURE=true if NODE_ENV is not production. */
 const cookieSecure = process.env.COOKIE_SECURE === "true" || isProd;
 
-function parseOrigins(value) {
-  return value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-const allowedOrigins = parseOrigins(CORS_ORIGINS);
-
+// CORS: allow any origin (reflect request Origin). Required for credentials: true — cannot use "*".
 app.use(
   cors({
     credentials: true,
-    origin(origin, cb) {
-      // Non-browser / same-origin tooling may omit Origin — allow
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      // Use cb(null, false): do not throw — throwing can surface as 500 on preflight (OPTIONS)
-      console.warn("[cors] blocked origin:", origin, "allowed:", allowedOrigins);
-      return cb(null, false);
-    },
+    origin: true,
   })
 );
+
+app.use(express.json());
 
 app.use(
   session({

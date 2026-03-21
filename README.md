@@ -34,7 +34,6 @@ Backend environment (recommended for production):
 - `SESSION_SECRET`: signs the dashboard session cookie (defaults to `APP_SECRET` if unset)
 - `ADMIN_KEY`: password used at **Sign in** (and must match what you type on the login page)
 - `PUBLIC_BASE_URL`: the public URL where the backend is reachable (used to generate `embedUrl`), e.g. `https://api.yourdomain.com`
-- `CORS_ORIGINS`: comma-separated allowlist for browser requests, e.g. `https://dashboard.yourdomain.com,https://www.yourdomain.com` (default `http://localhost:3000`)
 - `CATEGORIES`: comma-separated names used to seed the categories table on first run (e.g. `Tutorials,Marketing,Training,Education,Other`). After that, categories are managed via the dashboard **Categories** page (CRUD).
 
 Admin key default:
@@ -63,9 +62,8 @@ Frontend environment:
 | **Same host as Next** (local or one domain) | Leave **`NEXT_PUBLIC_API_BASE_URL` unset**. The browser uses `/api/*`; Next rewrites to the backend (`next.config.mjs` + `BACKEND_URL`). |
 | **Different domains** (e.g. app on `https://app.example.com`, API on `https://api.example.com`) | Set **`NEXT_PUBLIC_API_BASE_URL=https://api.example.com`** (your real API URL, HTTPS, no trailing slash). The browser calls the API directly; rewrites do not apply to those requests. |
 
-Split domains — backend **must** allow the frontend origin and send cross-site cookies:
+Split domains — backend CORS allows **all origins** (reflects `Origin`); you still need cross-site cookies:
 
-- **`CORS_ORIGINS`**: comma-separated **exact** origins of the Next app, e.g. `https://app.example.com` (not `*`; required when using `credentials`).
 - **HTTPS** on both sides; session cookie uses **`SameSite=None`** and **`Secure`** when cookies are secure (production `NODE_ENV`, or set **`COOKIE_SECURE=true`** on the API if you need cross-site cookies without `NODE_ENV=production`).
 - **`trust proxy`** is already enabled so secure cookies work behind TLS termination.
 
