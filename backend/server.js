@@ -11,7 +11,7 @@ import { convertMp4ToHls } from "./ffmpeg.js";
 import "dotenv/config";
 
 const app = express();
-app.use(cors());
+// Must be first: secure cookies / req.secure behind Cloudflare or other reverse proxies
 app.set("trust proxy", 1);
 
 // GitHub webhook needs raw body for signature verification; must be before express.json()
@@ -79,19 +79,15 @@ app.use(
   cors({
     credentials: true,
     origin(origin, cb) {
+      // Non-browser / same-origin tooling may omit Origin — allow
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
+      // Use cb(null, false): do not throw — throwing can surface as 500 on preflight (OPTIONS)
+      console.warn("[cors] blocked origin:", origin, "allowed:", allowedOrigins);
+      return cb(null, false);
     },
   })
 );
-
-app.use((err, _req, res, next) => {
-  if (err?.message?.startsWith("CORS blocked for origin:")) {
-    return res.status(403).json({ error: "CORS blocked" });
-  }
-  next(err);
-});
 
 app.use(
   session({
