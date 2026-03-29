@@ -113,7 +113,11 @@ const isProd = process.env.NODE_ENV === "production";
 /** Cross-site cookies (frontend on another domain): needs HTTPS + SameSite=None. Set COOKIE_SECURE=true if NODE_ENV is not production. */
 const cookieSecure = process.env.COOKIE_SECURE === "true" || isProd;
 
-const allowedOrigins = ["https://video-hosting.ea-dental.com"];
+const allowedOrigins = [
+  "https://video-hosting.ea-dental.com",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
 
 app.use(
   cors({
