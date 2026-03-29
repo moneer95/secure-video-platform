@@ -10,6 +10,9 @@
  *
  * If Wistia fails, refresh `x-csrf-token` + `cookie` from the browser. Do not commit live cookies.
  *
+ * Files save under `./downloads/` (override: WISTIA_DOWNLOAD_DIR=./my-folder).
+ * Names: `{wistiaMediaId}-{sanitized-display-name}.mp4` (display name from Wistia).
+ *
  * Debug:
  *   DEBUG=1 node download-wistia.js          — extra detail + stack traces
  *   WISTIA_LOG_FILE=./wistia.log ...         — append same lines to a file
@@ -20,6 +23,10 @@ const { pipeline } = require("stream/promises");
 
 const VERBOSE = process.env.DEBUG === "1" || process.env.VERBOSE === "1";
 const WISTIA_LOG_FILE = (process.env.WISTIA_LOG_FILE || "").trim();
+
+const DOWNLOAD_DIR = path.isAbsolute(process.env.WISTIA_DOWNLOAD_DIR || "")
+  ? process.env.WISTIA_DOWNLOAD_DIR
+  : path.join(__dirname, process.env.WISTIA_DOWNLOAD_DIR || "downloads");
 
 function ts() {
   return new Date().toISOString();
@@ -214,17 +221,21 @@ async function downloadFile(url, filename) {
 }
 
 /********************* FILENAME BUILDER ************************/
+function sanitizeDisplayNameForFile(displayName) {
+  let s = (displayName || "video").replace(/[<>:"/\\|?*]+/g, "").trim();
+  s = s.replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  if (s.length > 150) s = s.slice(0, 150);
+  return s || "video";
+}
+
+/** `{mediaId}-{name-from-download}.{ext}` — id first so sorting/search by id is easy */
 function buildFileName(file, id) {
-  let base = file.displayName || "video";
-  let ext = file.extension || "mp4";
-
-  base = base.replace(/[<>:"/\\|?*]+/g, "").trim();
-
-  if (base.toLowerCase().endsWith(`.${ext}`)) {
-    base = base.slice(0, -ext.length - 1);
+  const ext = String(file.extension || "mp4").replace(/^\./, "");
+  let namePart = sanitizeDisplayNameForFile(file.displayName);
+  if (namePart.toLowerCase().endsWith(`.${ext}`)) {
+    namePart = namePart.slice(0, -(ext.length + 1));
   }
-
-  return `${base}-${id}.${ext}`;
+  return `${id}-${namePart}.${ext}`;
 }
 
 /********************* SELECT BEST QUALITY ************************/
@@ -257,8 +268,11 @@ function selectBestFile(files) {
     `ADMIN_KEY set=${Boolean(ADMIN_KEY_FOR_UPLOAD)}`,
     `SKIP_UPLOAD=${process.env.SKIP_UPLOAD || "(unset)"}`,
     `VERBOSE=${VERBOSE}`,
-    WISTIA_LOG_FILE ? `logFile=${WISTIA_LOG_FILE}` : "logFile=(stdout only)"
+    WISTIA_LOG_FILE ? `logFile=${WISTIA_LOG_FILE}` : "logFile=(stdout only)",
+    `downloadDir=${DOWNLOAD_DIR}`
   );
+
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
   let platformCookie = "";
   if (AUTO_UPLOAD) {
@@ -336,10 +350,7 @@ function selectBestFile(files) {
 
       log("selected:", bestFile.displayName);
 
-      const filename = path.join(
-        __dirname,
-        buildFileName(bestFile, id)
-      );
+      const filename = path.join(DOWNLOAD_DIR, buildFileName(bestFile, id));
 
       log("downloading →", filename);
 
@@ -349,9 +360,7 @@ function selectBestFile(files) {
 
       if (platformCookie) {
         const title =
-          path.basename(filename, path.extname(filename)).replace(/-[a-z0-9]{8,}$/i, "") ||
-          bestFile.displayName ||
-          id;
+          (bestFile.displayName || "").replace(/[<>:"/\\|?*]+/g, "").trim() || id;
         const category =
           process.env.UPLOAD_CATEGORY || backendEnv.UPLOAD_CATEGORY || "";
         try {
