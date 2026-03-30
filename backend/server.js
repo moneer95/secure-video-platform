@@ -460,6 +460,31 @@ app.get("/stream/:id/:asset", requirePlayback, (req, res) => {
   res.send(fs.readFileSync(filePath));
 });
 
+// Catch-all error handler so client sees JSON instead of Express HTML pages.
+// This also helps when errors happen inside multer middleware (e.g. malformed multipart).
+app.use((err, req, res, next) => {
+  // If headers are already sent, delegate to default handler
+  if (res.headersSent) return next(err);
+
+  const isMulter = err && (err.name === "MulterError" || err.code === "MulterError");
+  const status = isMulter ? 400 : err?.statusCode || err?.status || 500;
+
+  console.error("[server] unhandled error", {
+    status,
+    path: req?.path,
+    method: req?.method,
+    message: err?.message,
+    stack: err?.stack,
+  });
+
+  const debugDetail = process.env.DEBUG === "1" ? err?.stack : undefined;
+  res.status(status).json({
+    error: isMulter ? "Upload failed" : "Server error",
+    message: err?.message,
+    detail: debugDetail,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
   console.log(`Public base URL: ${PUBLIC_BASE_URL}`);
