@@ -1,0 +1,8 @@
+{
+  "name": "secure-video-platform",
+  "private": true,
+  "description": "Root deps for download-wistia.js (streaming multipart upload)",
+  "dependencies": {
+    "form-data": "^4.0.4"
+  }
+}

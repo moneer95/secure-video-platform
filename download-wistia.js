@@ -15,6 +15,9 @@
  * If that path already exists, download (and upload) are skipped for that id.
  * To upload an existing file anyway: UPLOAD_IF_FILE_EXISTS=1
  *
+ * Large uploads: streams the file (no 2 GiB readFile limit). From repo root run once:
+ *   npm install
+ *
  * Debug:
  *   DEBUG=1 node download-wistia.js          — extra detail + stack traces
  *   WISTIA_LOG_FILE=./wistia.log ...         — append same lines to a file
@@ -22,6 +25,16 @@
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
+
+let FormDataStream;
+try {
+  FormDataStream = require("form-data");
+} catch (e) {
+  console.error(
+    "[wistia] Missing package `form-data`. From the repo root run: npm install"
+  );
+  process.exit(1);
+}
 
 const VERBOSE = process.env.DEBUG === "1" || process.env.VERBOSE === "1";
 const WISTIA_LOG_FILE = (process.env.WISTIA_LOG_FILE || "").trim();
@@ -158,18 +171,27 @@ async function loginToVideoPlatform(baseUrl, adminKey) {
 }
 
 async function uploadMp4ToPlatform(baseUrl, cookieHeader, filepath, title, category) {
-  const buf = await fs.promises.readFile(filepath);
   const name = path.basename(filepath);
-  log("upload", name, `bytes=${buf.length}`, `title=${JSON.stringify(title)}`);
-  const form = new FormData();
-  form.append("file", new Blob([buf], { type: "video/mp4" }), name);
+  const st = fs.statSync(filepath);
+  log("upload (streaming)", name, `bytes=${st.size}`, `title=${JSON.stringify(title)}`);
+
+  const form = new FormDataStream();
+  form.append("file", fs.createReadStream(filepath), {
+    filename: name,
+    contentType: "video/mp4",
+  });
   form.append("title", title || path.basename(filepath, path.extname(filepath)));
   form.append("category", category || "");
+
   const url = `${baseUrl}/api/upload`;
   const r = await fetch(url, {
     method: "POST",
-    headers: { Cookie: cookieHeader },
+    headers: {
+      Cookie: cookieHeader,
+      ...form.getHeaders(),
+    },
     body: form,
+    duplex: "half",
   });
   const raw = await readResponseText(r);
   let data = {};
