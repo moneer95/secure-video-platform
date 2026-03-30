@@ -12,6 +12,8 @@
  *
  * Files save under `./downloads/` (override: WISTIA_DOWNLOAD_DIR=./my-folder).
  * Names: `{wistiaMediaId}-{sanitized-display-name}.mp4` (display name from Wistia).
+ * If that path already exists, download (and upload) are skipped for that id.
+ * To upload an existing file anyway: UPLOAD_IF_FILE_EXISTS=1
  *
  * Debug:
  *   DEBUG=1 node download-wistia.js          — extra detail + stack traces
@@ -352,13 +354,21 @@ function selectBestFile(files) {
 
       const filename = path.join(DOWNLOAD_DIR, buildFileName(bestFile, id));
 
-      log("downloading →", filename);
+      const alreadyThere = fs.existsSync(filename);
+      if (alreadyThere) {
+        const st = fs.statSync(filename);
+        log("skip download (file exists)", filename, `bytes=${st.size}`);
+      } else {
+        log("downloading →", filename);
+        await downloadFile(bestFile.downloadUrl, filename);
+        log("saved:", filename);
+      }
 
-      await downloadFile(bestFile.downloadUrl, filename);
+      const shouldUpload =
+        platformCookie &&
+        (!alreadyThere || process.env.UPLOAD_IF_FILE_EXISTS === "1");
 
-      log("saved:", filename);
-
-      if (platformCookie) {
+      if (shouldUpload) {
         const title =
           (bestFile.displayName || "").replace(/[<>:"/\\|?*]+/g, "").trim() || id;
         const category =
@@ -375,6 +385,8 @@ function selectBestFile(files) {
         } catch (uploadErr) {
           logErr("upload failed for", filename, uploadErr);
         }
+      } else if (platformCookie && alreadyThere) {
+        log("skip upload (file already existed; set UPLOAD_IF_FILE_EXISTS=1 to upload anyway)");
       } else if (AUTO_UPLOAD) {
         logWarn("skip upload (no session cookie — login failed earlier)");
       }
